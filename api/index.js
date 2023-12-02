@@ -8,12 +8,14 @@ const bcrypt = require("bcryptjs");
 var User = require("./models/User");
 var Message = require("./models/Message");
 const ws = require("ws");
+const fs = require("fs");
 
 const port = process.env.PORT;
 const URL = process.env.URL;
 
 var cors = require("cors");
 const app = express();
+app.use("/uploads", express.static(__dirname + "/uploads"));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -96,7 +98,7 @@ app.post("/login", async (req, res) => {
 });
 
 app.post("/logout", (req, res) => {
-  res.cookie("token", "", { sameSite: "none", secure: true }).json('ok')
+  res.cookie("token", "", { sameSite: "none", secure: true }).json("ok");
 });
 
 app.post("/register", async (req, res) => {
@@ -156,7 +158,7 @@ wss.on("connection", (connection, req) => {
 
     connection.deathTimer = setTimeout(() => {
       connection.isAlive = false;
-      clearInterval(connection.deathTimer)
+      clearInterval(connection.deathTimer);
       connection.terminate();
       notifyAboutOnlinePeople();
     }, 1000);
@@ -188,13 +190,29 @@ wss.on("connection", (connection, req) => {
   connection.on("message", async (message) => {
     // console.log(typeof message);
     const messageData = JSON.parse(message.toString());
-    const { recipient, text } = messageData;
-    if (recipient && text) {
+    const { recipient, text, file } = messageData;
+    let filename = null;
+    if (file) {
+      //console.log({ file });
+
+      const parts = file.name.split(".");
+      const ext = parts[parts.length - 1];
+      filename = Date.now() + "." + ext;
+      const path = __dirname + "/uploads/" + filename;
+      const bufferData = new Buffer(file.data.split(',')[1], "base64");
+      fs.writeFile(path, bufferData, () => {
+        console.log("file Saved:" + path);
+      });
+    }
+
+    if (recipient && (text || file)) {
       const messageDoc = await Message.create({
         sender: connection.userId,
         recipient,
         text,
+        file: file ? filename : null,
       });
+
       [...wss.clients]
         .filter((c) => c.userId === recipient)
         .forEach((c) =>
@@ -203,6 +221,7 @@ wss.on("connection", (connection, req) => {
               text,
               sender: connection.userId,
               recipient,
+              file: file ? filename : null,
               _id: messageDoc._id,
             })
           )
